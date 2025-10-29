@@ -51,7 +51,7 @@
             <div class="p-4 space-y-4">
               <p class="text-sm text-slate-600">Controle o quanto ver: do ultrarresumo ao modo detalhado.</p>
               <div>
-                <input type="range" min="0" max="100" step="10" v-model.number="densidade" class="w-full"/>
+                <input type="range" min="0" max="100" step="10" v-model.number.lazy="densidade" class="w-full"/>
                 <div class="text-xs text-slate-500 mt-2">Nível atual: {{ densidade }}%</div>
               </div>
               <label class="flex items-center justify-between cursor-pointer select-none">
@@ -123,8 +123,8 @@
             <div class="p-4 space-y-3">
               <p class="text-sm text-slate-600">Converse para obter exatamente o que precisa.</p>
               <div class="flex items-center gap-2">
-                <input class="w-full border rounded-xl px-3 py-2" placeholder="Pergunte algo… ex: gerar checklist" v-model="pergunta"/>
-                <button class="rounded-xl px-3 py-2 bg-slate-900 text-white"><Wand2 class="w-4 h-4"/></button>
+                <input class="w-full border rounded-xl px-3 py-2" placeholder="Pergunte algo… ex: gerar checklist" v-model.trim="pergunta"/>
+                <button class="rounded-xl px-3 py-2 bg-slate-900 text-white" @click="onPerguntar"><Wand2 class="w-4 h-4"/></button>
               </div>
               <p class="text-xs text-slate-500">Sugestões: “Resuma por papel”, “Mostrar lacunas”, “Exportar plano”.</p>
             </div>
@@ -170,7 +170,7 @@
           <header class="p-4 border-b flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <h3 class="text-base flex items-center gap-2"><Search class="w-4 h-4"/> Checklist de Ação (filtrável)</h3>
             <div class="flex items-center gap-3">
-              <input class="w-64 border rounded-xl px-3 py-2" placeholder="Filtrar por palavra‑chave…" v-model="filtro"/>
+              <input class="w-64 border rounded-xl px-3 py-2" placeholder="Filtrar por palavra‑chave…" v-model.trim="filtro"/>
               <span class="px-2 py-1 text-xs rounded-full border cursor-help">Priorize pelo impacto</span>
             </div>
           </header>
@@ -204,11 +204,11 @@
               <div class="flex items-center gap-2">
                 <span class="px-2 py-1 text-xs rounded-full border">Score mínimo</span>
                 <div class="w-48">
-                  <input type="range" min="1" max="25" step="1" v-model.number="scoreMin" class="w-full"/>
+                  <input type="range" min="1" max="25" step="1" v-model.number.lazy="scoreMin" class="w-full"/>
                   <div class="text-xs text-slate-500 mt-1">Atual: {{ scoreMin }}</div>
                 </div>
               </div>
-              <input class="w-56 border rounded-xl px-3 py-2" placeholder="Filtrar por zona/conduíte…" v-model="filtroZona"/>
+              <input class="w-56 border rounded-xl px-3 py-2" placeholder="Filtrar por zona/conduíte…" v-model.trim="filtroZona"/>
             </div>
           </header>
           <div class="p-4 space-y-4">
@@ -223,13 +223,13 @@
             <div class="overflow-auto">
               <div class="min-w-[640px] grid grid-cols-6 gap-2">
                 <div></div>
-                <div v-for="p in [1,2,3,4,5]" :key="'ph'+p" class="text-center text-xs text-slate-500">Prob {{ p }}</div>
+                <div v-for="p in PROBS" :key="'ph'+p" class="text-center text-xs text-slate-500">Prob {{ p }}</div>
 
-                <template v-for="i in [5,4,3,2,1]" :key="'row'+i">
+                <template v-for="i in IMPACTS" :key="'row'+i">
                   <div class="flex items-center text-xs text-slate-500">Impacto {{ i }}</div>
-                  <div v-for="p in [1,2,3,4,5]" :key="'c'+i+'-'+p" :class="['p-3 rounded-lg border transition-colors', corPorScore(i*p)]">
-                    <div class="text-sm font-medium">{{ matriz[i-1][p-1].items.length }}</div>
-                    <div class="text-[10px] text-slate-600">{{ i * p }}</div>
+                  <div v-for="p in PROBS" :key="'c'+i+'-'+p" :class="['p-3 rounded-lg border transition-colors', corPorScore(score(i,p))]">
+                    <div class="text-sm font-medium">{{ cellCount(i,p) }}</div>
+                    <div class="text-[10px] text-slate-600">{{ score(i,p) }}</div>
                   </div>
                 </template>
               </div>
@@ -319,6 +319,10 @@ import { AlertTriangle, ArrowRight, BookOpen, Bot, Brain, Check, Clock, Focus, P
 interface Passo { id: number; texto: string; impacto: 'alto' | 'médio' | 'baixo' }
 interface Risco { id: number; titulo: string; zona: string; prob: number; impacto: number }
 
+// ---------- Constantes estáticas ----------
+const PROBS = [1,2,3,4,5] as const
+const IMPACTS = [5,4,3,2,1] as const
+
 // ---------- Mock data ----------
 const resumo30s = `Segurança cibernética industrial eficaz começa com gestão (políticas, processos, pessoas) e só depois vai para controles técnicos. O sistema adapta conteúdo por perfil, contexto e objetivo — reduz carga cognitiva, prioriza riscos e gera ação.`
 const microHistoria = {
@@ -359,29 +363,39 @@ const filtroZona = ref('')
 const scoreMin = ref<number>(9)
 const pergunta = ref('')
 const aba = ref<'acao'|'aprendizado'|'auditoria'>('acao')
+const dialogAberto = ref(false)
 
 // ---------- Computeds ----------
+const filtroLower = computed(() => filtro.value.toLowerCase())
+const filtroZonaLower = computed(() => filtroZona.value.toLowerCase())
+
 const passosFiltrados = computed(() =>
-  passosAcao.filter(p => p.texto.toLowerCase().includes(filtro.value.toLowerCase()))
+  passosAcao.filter(p => p.texto.toLowerCase().includes(filtroLower.value))
 )
+
 const riscosFiltrados = computed(() =>
-  riscos.filter(r => (filtroZona.value ? r.zona.toLowerCase().includes(filtroZona.value.toLowerCase()) : true) && (r.prob * r.impacto >= scoreMin.value))
+  riscos.filter(r => (filtroZona.value ? r.zona.toLowerCase().includes(filtroZonaLower.value) : true) && (r.prob * r.impacto >= scoreMin.value))
 )
-const matriz = computed(() => {
+
+const matriz = computed<{ items: Risco[] }[][]>(() => {
   const grid: { items: Risco[] }[][] = Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => ({ items: [] as Risco[] })))
-  riscosFiltrados.value.forEach(r => {
+  for (const r of riscosFiltrados.value) {
     const p = Math.min(Math.max(r.prob, 1), 5)
     const i = Math.min(Math.max(r.impacto, 1), 5)
-    grid[i - 1][p - 1].items.push(r)
-  })
+    grid[i - 1]![p - 1]!.items.push(r)
+  }
   return grid
 })
 
+// helpers para template (evitam TS e reduzem re-render)
+const score = (i: number, p: number) => i * p
+const cellCount = (i: number, p: number) => matriz.value[i - 1]?.[p - 1]?.items?.length ?? 0
+
 // ---------- Métodos ----------
-function corPorScore(score: number) {
-  if (score >= 16) return 'bg-red-100 border-red-300'
-  if (score >= 11) return 'bg-orange-100 border-orange-300'
-  if (score >= 6) return 'bg-yellow-100 border-yellow-300'
+function corPorScore(s: number) {
+  if (s >= 16) return 'bg-red-100 border-red-300'
+  if (s >= 11) return 'bg-orange-100 border-orange-300'
+  if (s >= 6) return 'bg-yellow-100 border-yellow-300'
   return 'bg-emerald-100 border-emerald-300'
 }
 function alternarChecklist(id: number) {
@@ -389,9 +403,11 @@ function alternarChecklist(id: number) {
   if (i >= 0) itensConcluidos.value.splice(i, 1)
   else itensConcluidos.value.push(id)
 }
-
-// Dialog state
-const dialogAberto = ref(false)
+function onPerguntar() {
+  // placeholder para ação de pergunta (mantido leve)
+  if (!pergunta.value) return
+  // ex.: emitir evento, chamar API, etc.
+}
 
 // Classes Tabs
 const abaOn = 'text-slate-900 bg-slate-100 px-3 py-1.5 text-sm'
